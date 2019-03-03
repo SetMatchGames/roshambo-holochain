@@ -31,25 +31,37 @@ use hdk::holochain_core_types::{
 // since I believe holochain can only store data publicly right now.
 // The front-end will pass that hash to the player's local chain, from which it can be shared with other players.
 // Once both players have the other player's hash, the players can reveal the raw data and confirm it with the hash.
+enum ValidMove {
+    "Rock",
+    "Paper",
+    "Scissors",
+}
+
 #[derive(Serialize, Deserialize, Debug, DefaultJson, Hash)]
 pub struct MoveChoice {
-    name: String,
+    name: ValidMove,
     nonce: String,
+    address: Address,
 }
 
 #[derive(Serialize, Deserialize, Debug, DefaultJson)]
 pub struct MoveChoiceHash {
-    hash: String,
+    hash: u64,
+}
+
+enum RoundResult {
+    winner_address: Address,
+    "Draw",
 }
 
 #[derive(Serialize, Deserialize, Debug, DefaultJson)]
 pub struct GameResult {
     player_addresses: Vec<Address>,
-    winner_address: Option<Address>,
-    loser_address: Option<Address>,
-    draw: bool, 
+    result: RoundResult,
     // Add a time stamp here -- how to get the two players to agree on it?
+        // Maybe there are only time stamps for moves, and the game time comes from those somehow. 
     // Add a game ID here -- how to get the two players to agree on it?
+        // something related to a websocket handshake at the beginning?
 }
 
 fn define_move_choice_hash_entry() -> ValidatingEntryType {
@@ -90,30 +102,25 @@ pub fn handle_commit_move_choice_hash(entry: MoveChoiceHash) -> ZomeApiResult<Ad
     Ok(address)
 }
 
-pub fn handle_commit_game_result(entry: GameResult) -> ZomeApiResult<Address> {
-    let entry = Entry::App("game_result".into(), entry.into());
-    let address = hdk::commit_entry(&entry)?;
-    Ok(address)
-}
-
 pub fn handle_get_entry(address: Address) -> ZomeApiResult<Option<Entry>> {
     hdk::get_entry(&address)
 }
 
 // functions still needed:
     // resolve two choices into a game result (once their raw data is revealed and confirmed)
-    // compare game results before committing
 
-pub fn handle_compare_move_choice_hashes(move_choice: MoveChoice, hash1: MoveChoiceHash) -> bool {
-    let hash2 = calculate_hash(move_choice)?;
-    match hash1 {
-        hash2 => true,
-        _     => false
-    }
+pub fn handle_confirm_choices_and_create_game_result() -> GameResult {
+    // the idea is to make it impossible for either player 
+    // to create a game result before both move choice hashes have been committed
+        // take in both player's raw move choices
+        // hash and compare to the hashes previously committed
+        // if those are equal, create the game result
 }
 
-pub fn resolve_move_choices(move1: MoveChoice, move2: MoveChoice) -> GameResult {
-
+pub fn handle_commit_game_result(entry: GameResult) -> ZomeApiResult<Address> {
+    let entry = Entry::App("game_result".into(), entry.into());
+    let address = hdk::commit_entry(&entry)?;
+    Ok(address)
 }
 
 define_zome! {
@@ -153,8 +160,36 @@ define_zome! {
 
 // Helper functions
 
-fn calculate_hash<M: Hash>(raw_data: &M) -> u64 {
+fn calculate_hash<T: Hash>(raw_data: &T) -> u64 {
     let mut hasher = DefaultHasher::new();
     raw_data.hash(&mut hasher);
     hasher.finish()
+}
+
+fn compare_move_choice_hashes(move_choice: MoveChoice, hash1: MoveChoiceHash) -> bool {
+    let hash2 = calculate_hash(&move_choice.try_into());
+    match hash1 {
+        hash2 => true,
+        _     => false,
+    }
+}
+
+fn resolve_move_choices(p1move: MoveChoice, p2move: MoveChoice) -> GameResult {
+    let result: RoundResult = match p1move.name {
+        p2move.name => "Draw",
+        "Rock" => match p2move.name {
+                "Paper" => &p2move.address,
+                "Scissors" => &p1move.address,
+            },
+        "Paper" => match p2move.name {
+                "Rock" => &p1move.address,
+                "Scissors" => &p2move.address,
+            },
+        "Scissors" => match p2move.name {
+                "Rock" => &p2move.address,
+                "Paper" => &p1move.address,
+            },
+    }
+    let player_addresses: Vec<Address> = (&p1move.address, &p2move.address);
+    { player_addresses, result }
 }
