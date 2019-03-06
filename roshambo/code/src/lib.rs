@@ -31,10 +31,11 @@ use hdk::holochain_core_types::{
 // since I believe holochain can only store data publicly right now.
 // The front-end will pass that hash to the player's local chain, from which it can be shared with other players.
 // Once both players have the other player's hash, the players can reveal the raw data and confirm it with the hash.
-enum ValidMove {
-    "Rock",
-    "Paper",
-    "Scissors",
+#[derive(Serialize, Deserialize, Debug, DefaultJson, Hash)]
+pub enum ValidMove {
+    Rock,
+    Paper,
+    Scissors,
 }
 
 #[derive(Serialize, Deserialize, Debug, DefaultJson, Hash)]
@@ -49,14 +50,15 @@ pub struct MoveChoiceHash {
     hash: u64,
 }
 
-enum RoundResult {
-    winner_address: Address,
-    "Draw",
+#[derive(Serialize, Deserialize, Debug, DefaultJson)]
+pub enum RoundResult {
+    Win(Address),
+    Draw,
 }
 
 #[derive(Serialize, Deserialize, Debug, DefaultJson)]
 pub struct GameResult {
-    player_addresses: Vec<Address>,
+    player_addresses: [Address; 2],
     result: RoundResult,
     // Add a time stamp here -- how to get the two players to agree on it?
         // Maybe there are only time stamps for moves, and the game time comes from those somehow. 
@@ -109,12 +111,15 @@ pub fn handle_get_entry(address: Address) -> ZomeApiResult<Option<Entry>> {
 // functions still needed:
     // resolve two choices into a game result (once their raw data is revealed and confirmed)
 
-pub fn handle_confirm_choices_and_create_game_result() -> GameResult {
-    // the idea is to make it impossible for either player 
+pub fn handle_confirm_choices_and_create_game_result(p1move: MoveChoice, 
+    p2move: MoveChoice, p1hash_address: Address, 
+    p2hash_address: Address) -> GameResult {
+    // the idea here is to make it impossible for either player 
     // to create a game result before both move choice hashes have been committed
         // take in both player's raw move choices
         // hash and compare to the hashes previously committed
         // if those are equal, create the game result
+    GameResult { player_addresses: [p1hash_address, p2hash_address], result: RoundResult::Draw, }
 }
 
 pub fn handle_commit_game_result(entry: GameResult) -> ZomeApiResult<Address> {
@@ -135,12 +140,12 @@ define_zome! {
         commit_move_choice_hash: {
             inputs: |entry: MoveChoiceHash|,
             outputs: |result: ZomeApiResult<Address>|,
-            handler: handle_create_move_choice_hash
+            handler: handle_commit_move_choice_hash
         }
         commit_game_result: {
             inputs: |entry: GameResult|,
             outputs: |result: ZomeApiResult<Address>|,
-            handler: handle_create_game_result
+            handler: handle_commit_game_result
         }
         get_entry: {
             inputs: |address: Address|,
@@ -167,29 +172,31 @@ fn calculate_hash<T: Hash>(raw_data: &T) -> u64 {
 }
 
 fn compare_move_choice_hashes(move_choice: MoveChoice, hash1: MoveChoiceHash) -> bool {
-    let hash2 = calculate_hash(&move_choice.try_into());
+    let hash2 = MoveChoiceHash { hash: calculate_hash(&move_choice) };
     match hash1 {
         hash2 => true,
-        _     => false,
+        _ => false,
     }
 }
 
-fn resolve_move_choices(p1move: MoveChoice, p2move: MoveChoice) -> GameResult {
-    let result: RoundResult = match p1move.name {
-        p2move.name => "Draw",
-        "Rock" => match p2move.name {
-                "Paper" => &p2move.address,
-                "Scissors" => &p1move.address,
+fn create_game_result(p1move: MoveChoice, p2move: MoveChoice) -> GameResult {
+    let addresses: [Address; 2] = [ p1move.address.clone(), p2move.address.clone() ];
+    let round_result: RoundResult = match p1move.name {
+        ValidMove::Rock => match p2move.name {
+                ValidMove::Paper => RoundResult::Win(p2move.address),
+                ValidMove::Scissors => RoundResult::Win(p1move.address),
+                ValidMove::Rock => RoundResult::Draw,
             },
-        "Paper" => match p2move.name {
-                "Rock" => &p1move.address,
-                "Scissors" => &p2move.address,
+        ValidMove::Paper => match p2move.name {
+                ValidMove::Rock => RoundResult::Win(p1move.address),
+                ValidMove::Scissors => RoundResult::Win(p2move.address),
+                ValidMove::Paper => RoundResult::Draw,
             },
-        "Scissors" => match p2move.name {
-                "Rock" => &p2move.address,
-                "Paper" => &p1move.address,
+        ValidMove::Scissors => match p2move.name {
+                ValidMove::Rock => RoundResult::Win(p2move.address),
+                ValidMove::Paper => RoundResult::Win(p1move.address),
+                ValidMove::Scissors => RoundResult::Draw,
             },
-    }
-    let player_addresses: Vec<Address> = (&p1move.address, &p2move.address);
-    { player_addresses, result }
+    };
+    GameResult { player_addresses: addresses, result: round_result }
 }
