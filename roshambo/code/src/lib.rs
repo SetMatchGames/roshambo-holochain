@@ -51,15 +51,9 @@ pub struct MoveChoiceHash {
 }
 
 #[derive(Serialize, Deserialize, Debug, DefaultJson)]
-pub enum RoundResult {
-    Win(Address),
-    Draw,
-}
-
-#[derive(Serialize, Deserialize, Debug, DefaultJson)]
-pub struct GameResult {
-    player_addresses: [Address; 2],
-    result: RoundResult,
+pub enum GameResult {
+    Win { winner_address: Address, loser_address: Address },
+    Draw { player_1_address: Address, player_2_address: Address}
     // Add a time stamp here -- how to get the two players to agree on it?
         // Maybe there are only time stamps for moves, and the game time comes from those somehow. 
     // Add a game ID here -- how to get the two players to agree on it?
@@ -119,7 +113,7 @@ pub fn handle_confirm_choices_and_create_game_result(p1move: MoveChoice,
         // take in both player's raw move choices
         // hash and compare to the hashes previously committed
         // if those are equal, create the game result
-    GameResult { player_addresses: [p1hash_address, p2hash_address], result: RoundResult::Draw, }
+    GameResult::Draw { player_1_address: p1hash_address, player_2_address: p2hash_address }
 }
 
 pub fn handle_commit_game_result(entry: GameResult) -> ZomeApiResult<Address> {
@@ -173,30 +167,29 @@ fn calculate_hash<T: Hash>(raw_data: &T) -> u64 {
 
 fn compare_move_choice_hashes(move_choice: MoveChoice, hash1: MoveChoiceHash) -> bool {
     let hash2 = MoveChoiceHash { hash: calculate_hash(&move_choice) };
-    match hash1 {
-        hash2 => true,
-        _ => false,
+    if hash1.hash == hash2.hash {
+        true
+    } else { 
+        false 
     }
 }
 
 fn create_game_result(p1move: MoveChoice, p2move: MoveChoice) -> GameResult {
-    let addresses: [Address; 2] = [ p1move.address.clone(), p2move.address.clone() ];
-    let round_result: RoundResult = match p1move.name {
+    match p1move.name {
         ValidMove::Rock => match p2move.name {
-                ValidMove::Paper => RoundResult::Win(p2move.address),
-                ValidMove::Scissors => RoundResult::Win(p1move.address),
-                ValidMove::Rock => RoundResult::Draw,
+                ValidMove::Paper => GameResult::Win { winner_address: p2move.address, loser_address: p1move.address },
+                ValidMove::Scissors => GameResult::Win { winner_address: p1move.address, loser_address: p2move.address },
+                ValidMove::Rock => GameResult::Draw { player_1_address: p1move.address, player_2_address: p2move.address },
             },
         ValidMove::Paper => match p2move.name {
-                ValidMove::Rock => RoundResult::Win(p1move.address),
-                ValidMove::Scissors => RoundResult::Win(p2move.address),
-                ValidMove::Paper => RoundResult::Draw,
+                ValidMove::Rock => GameResult::Win { winner_address: p1move.address, loser_address: p2move.address },
+                ValidMove::Scissors => GameResult::Win { winner_address: p2move.address, loser_address: p1move.address },
+                ValidMove::Paper => GameResult::Draw { player_1_address: p1move.address, player_2_address: p2move.address },
             },
         ValidMove::Scissors => match p2move.name {
-                ValidMove::Rock => RoundResult::Win(p2move.address),
-                ValidMove::Paper => RoundResult::Win(p1move.address),
-                ValidMove::Scissors => RoundResult::Draw,
+                ValidMove::Rock => GameResult::Win { winner_address: p2move.address, loser_address: p1move.address },
+                ValidMove::Paper => GameResult::Win { winner_address: p1move.address, loser_address: p2move.address },
+                ValidMove::Scissors => GameResult::Draw { player_1_address: p1move.address, player_2_address: p2move.address },
             },
-    };
-    GameResult { player_addresses: addresses, result: round_result }
+    }
 }
