@@ -18,5 +18,5 @@ scenario.runTape("a round of Roshambo can be played securely", (t, { alice }) =>
   // check for equality of the actual and expected results
   t.deepEqual(result, { Ok: { App: [ 'my_entry', '{"content":"sample content"}' ] } })
 
-  // check 
+  // check that MoveChoiceHashes and GameResults can be stored
 })
