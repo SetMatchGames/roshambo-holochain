@@ -4,7 +4,7 @@
 extern crate hdk;
 extern crate serde;
 extern crate multihash;
-extern crate rand;
+// extern crate rand;
 
 #[macro_use]
 extern crate serde_derive;
@@ -14,8 +14,8 @@ extern crate serde_json;
 extern crate holochain_core_types_derive;
 
 use multihash::Hash as Multihash;
-use rand::{thread_rng, Rng};
-use rand::distributions::Alphanumeric;
+// use rand::{thread_rng, Rng};
+// use rand::distributions::Alphanumeric;
 use std::convert::TryInto;
 
 use hdk::{
@@ -38,6 +38,8 @@ use holochain_wasm_utils::api_serialization::get_entry::{
     GetEntryResultType,
     GetEntryOptions,
 };
+
+// TODO assume clients will input nonces
 
 
 // each entry should be a state machine in the game
@@ -212,7 +214,7 @@ fn define_offer_entry() -> ValidatingEntryType {
         validation_package: || {
             hdk::ValidationPackageDefinition::Entry
         },
-        validation: |validation_data: hdk::EntryValidationData<Offer>| {
+        validation: |_validation_data: hdk::EntryValidationData<Offer>| {
             // challenger_id is an agent
             /*
             match offer.challenger_id {
@@ -220,11 +222,6 @@ fn define_offer_entry() -> ValidatingEntryType {
                 _ => Err(String::from("No challenger").into()),
             }
             */
-            if let hdk::EntryValidationData::Create{entry: offer, validation_data: _} = validation_data {
-                hdk::debug(format!("validation: {} {}", offer.challenger_id, offer.format_id));
-            } else { 
-                hdk::debug(format!("could not destructure validation data")); 
-            }
             Ok(())
         }
     )
@@ -298,7 +295,8 @@ fn define_game_result_entry() -> ValidatingEntryType {
         validation: |validation_data: hdk::EntryValidationData<GameResult>| {
             // hash of reveal == move_.hash, reveal.component is in format, 
             // game_result.format_id == move.format_id
-            if let hdk::EntryValidationData::Create{entry: game_result, validation_data: _} = validation_data {
+            if let hdk::EntryValidationData::Create{entry: game_result, validation_data: validation_} = validation_data {
+                let result_author_address: Address = author_from_header(&validation_.package.chain_header)?;
                 match game_result.clone() {
                     GameResult::Win {
                         reveal,
@@ -306,13 +304,13 @@ fn define_game_result_entry() -> ValidatingEntryType {
                         winner_id: _, // validated by checking game result
                         loser_id: _,  // validated by checking game result
                         format_id,
-                    } => validate_game_result(game_result, reveal, move_address, format_id),
+                    } => validate_game_result(game_result, reveal, move_address, format_id, result_author_address),
                     GameResult::Draw {
                         reveal,
                         move_address,
                         players: _, // validated by checking game result
                         format_id,
-                    } => validate_game_result(game_result, reveal, move_address, format_id),
+                    } => validate_game_result(game_result, reveal, move_address, format_id, result_author_address),
                 }
             } else { Err(String::from("Unreachable").into()) }
         }
@@ -332,9 +330,9 @@ pub fn handle_new_offer(challenger_id_: Address, format_id_: String) -> ZomeApiR
     Ok(address)
 }
 
-pub fn handle_new_commitment(component_: Component, offer_address_: Address, host_id_: Address) -> ZomeApiResult<Address> {
+pub fn handle_new_commitment(component_: Component, offer_address_: Address, host_id_: Address, nonce_: String) -> ZomeApiResult<Address> {
     let offer: Offer = handle_get_offer(offer_address_.clone())?;
-    let nonce_: String = generate_nonce();
+    // let nonce_: String = String::from("randomstring"); // generate_nonce(); // We've decided this can be handled client-side.
     let reveal = Reveal { component: component_, nonce: nonce_};
         // this reveal needs to get stored locally somehow (not available publicly on chain)
     let hashstring: HashString = calculate_hash(reveal);
@@ -396,14 +394,12 @@ pub fn handle_get_move(address: Address) -> ZomeApiResult<Move> {
     }
 }
 
-/*
 pub fn handle_get_game_result(address: Address) -> ZomeApiResult<GameResult> {
     match hdk::get_entry(&address) {
         Ok(Some(Entry::App(_, api_result))) => Ok(api_result.try_into()?),
         _ => Err(String::from("No game result found").into())
     }
 }
-*/
 
 // this is not the correct way to handle agent ids
 /*
@@ -436,7 +432,7 @@ define_zome! {
             handler: handle_new_offer
         }
         new_commitment: {
-            inputs: |component_: Component, offer_address_: Address, host_id_: Address|,
+            inputs: |component_: Component, offer_address_: Address, host_id_: Address, nonce_: String|,
             outputs: |result: ZomeApiResult<Address>|,
             handler: handle_new_commitment
         }
@@ -465,6 +461,11 @@ define_zome! {
             outputs: |result: ZomeApiResult<Move>|,
             handler: handle_get_move
         }
+        get_game_result: {
+            inputs: |address: Address|,
+            outputs: |result: ZomeApiResult<GameResult>|,
+            handler: handle_get_game_result
+        }
         /*
         get_agent_id: {
             inputs: |address: Address|,
@@ -482,7 +483,8 @@ define_zome! {
             get_commitment,
             new_move,
             get_move,
-            new_game_result
+            new_game_result,
+            get_game_result
             // get_agent_id
         ]
     }
@@ -580,11 +582,13 @@ fn resolve_components(host_component: &Component, challenger_component: &Compone
     return String::from("draw");
 }
 
-fn validate_game_result(game_result: GameResult, reveal: Reveal, move_address: Address, format_id: String) -> Result<(), String> {
+fn validate_game_result(game_result: GameResult, reveal: Reveal, move_address: Address, format_id: String, result_author_address: Address) -> Result<(), String> {
     let move_author: Address = get_author(&move_address)?;
     let move_: Move = handle_get_move(move_address.clone())?;
-    
 
+    if result_author_address != move_.challenger_id.clone() {
+        return Err(String::from("Game result author does not match challenger id."));
+    }
     if move_.hash != calculate_hash(reveal.clone()) {
         return Err(String::from("Move hash does not match hash of reveal"));
     }
@@ -594,15 +598,15 @@ fn validate_game_result(game_result: GameResult, reveal: Reveal, move_address: A
     if game_result != create_game_result(reveal, move_address, move_author)? {
         return Err(String::from("Game results do not match"));
     }
-
     // TODO Assert!(reveal component is in the format);
-
     Ok(())
 }
 
+/* We've decided this can be handled client-side/off-chain.
 fn generate_nonce() -> String {
     thread_rng() // TODO research cryptographic security of this RNG
         .sample_iter(&Alphanumeric)
         .take(24)
         .collect()
 }
+*/
