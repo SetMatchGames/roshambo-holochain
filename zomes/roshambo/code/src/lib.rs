@@ -236,7 +236,7 @@ fn define_commitment_entry() -> ValidatingEntryType {
             hdk::ValidationPackageDefinition::Entry
         },
         validation: |validation_data: hdk::EntryValidationData<Commitment>| {
-            // offer.author == commitment.host, commitment.author == offer.challenger, format_ids match
+            // offer.author == commitment.host, commitment.author == offer.challenger
             if let hdk::EntryValidationData::Create{entry: commitment, validation_data: validation_} = validation_data {
                 let offer_author_address: Address = get_author(&commitment.offer_address)?.into();
                 let offer: Offer = handle_get_offer(commitment.offer_address.clone())?;
@@ -244,9 +244,6 @@ fn define_commitment_entry() -> ValidatingEntryType {
 
                 assert!(offer_author_address == commitment.host_id);
                 assert!(commitment_author_address == offer.challenger_id);
-                if commitment.format_id != offer.format_id {
-                    return Err(String::from("Commitment format does not match offer").into());
-                };
                 Ok(())
             } else { Err(String::from("Unreachable").into()) }
         }
@@ -262,8 +259,8 @@ fn define_move_entry() -> ValidatingEntryType {
             hdk::ValidationPackageDefinition::Entry
         },
         validation: |validation_data: hdk::EntryValidationData<Move>| {
-            // move.author == commitment.host_id, challenger_id == commitment.author, move.hash == commitment.hash, 
-            // move.component is in format, move.format_id == commitment.format_id
+            // move.author == commitment.host_id, challenger_id == commitment.author, 
+            // move.component is in format
             if let hdk::EntryValidationData::Create{entry: move_, validation_data: validation_} = validation_data {
                 let commitment_author_address: Address = get_author(&move_.commitment_address)?.into();
                 let commitment: Commitment = handle_get_commitment(move_.commitment_address.clone())?;
@@ -271,12 +268,6 @@ fn define_move_entry() -> ValidatingEntryType {
                 
                 assert!(move_author_address == commitment.host_id);
                 assert!(commitment_author_address == move_.challenger_id);
-                if move_.hash != commitment.hash {
-                    return Err(String::from("Move hash does not match commitment").into());
-                };
-                if move_.format_id != commitment.format_id {
-                    return Err(String::from("Move format does not match commitment").into());
-                };
                 // TODO assert(_move.component is not in format);
                 Ok(())
             } else { Err(String::from("Unreachable").into()) }
@@ -293,8 +284,7 @@ fn define_game_result_entry() -> ValidatingEntryType {
             hdk::ValidationPackageDefinition::Entry
         },
         validation: |validation_data: hdk::EntryValidationData<GameResult>| {
-            // hash of reveal == move_.hash, reveal.component is in format, 
-            // game_result.format_id == move.format_id
+            // hash of reveal == move_.hash, reveal.component is in format
             if let hdk::EntryValidationData::Create{entry: game_result, validation_data: validation_} = validation_data {
                 let result_author_address: Address = author_from_header(&validation_.package.chain_header)?;
                 match game_result.clone() {
@@ -304,13 +294,13 @@ fn define_game_result_entry() -> ValidatingEntryType {
                         winner_id: _, // validated by checking game result
                         loser_id: _,  // validated by checking game result
                         format_id,
-                    } => validate_game_result(game_result, reveal, move_address, format_id, result_author_address),
+                    } => validate_game_result(game_result, reveal, move_address, result_author_address),
                     GameResult::Draw {
                         reveal,
                         move_address,
                         players: _, // validated by checking game result
                         format_id,
-                    } => validate_game_result(game_result, reveal, move_address, format_id, result_author_address),
+                    } => validate_game_result(game_result, reveal, move_address, result_author_address),
                 }
             } else { Err(String::from("Unreachable").into()) }
         }
@@ -582,7 +572,7 @@ fn resolve_components(host_component: &Component, challenger_component: &Compone
     return String::from("draw");
 }
 
-fn validate_game_result(game_result: GameResult, reveal: Reveal, move_address: Address, format_id: String, result_author_address: Address) -> Result<(), String> {
+fn validate_game_result(game_result: GameResult, reveal: Reveal, move_address: Address, result_author_address: Address) -> Result<(), String> {
     let move_author: Address = get_author(&move_address)?;
     let move_: Move = handle_get_move(move_address.clone())?;
 
@@ -591,9 +581,6 @@ fn validate_game_result(game_result: GameResult, reveal: Reveal, move_address: A
     }
     if move_.hash != calculate_hash(reveal.clone()) {
         return Err(String::from("Move hash does not match hash of reveal"));
-    }
-    if format_id != move_.format_id {
-        return Err(String::from("Format id does not match move"));
     }
     if game_result != create_game_result(reveal, move_address, move_author)? {
         return Err(String::from("Game results do not match"));
