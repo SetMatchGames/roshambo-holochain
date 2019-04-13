@@ -242,9 +242,14 @@ fn define_commitment_entry() -> ValidatingEntryType {
                 let offer: Offer = handle_get_offer(commitment.offer_address.clone())?;
                 let commitment_author_address: Address = author_from_header(&validation_.package.chain_header)?;
 
-                assert!(offer_author_address == commitment.host_id);
-                assert!(commitment_author_address == offer.challenger_id);
+                if offer_author_address != commitment.host_id {
+                    return Err(String::from("Commitment entry error: offer author doesn't match host id from commitment"));
+                }
+                if commitment_author_address != offer.challenger_id {
+                    return Err(String::from("Commitment entry error: commitment author doesn't match challenger id from offer"));
+                }
                 Ok(())
+
             } else { Err(String::from("Unreachable").into()) }
         }
     )
@@ -293,13 +298,13 @@ fn define_game_result_entry() -> ValidatingEntryType {
                         move_address,
                         winner_id: _, // validated by checking game result
                         loser_id: _,  // validated by checking game result
-                        format_id,
+                        format_id: _,
                     } => validate_game_result(game_result, reveal, move_address, result_author_address),
                     GameResult::Draw {
                         reveal,
                         move_address,
                         players: _, // validated by checking game result
-                        format_id,
+                        format_id: _,
                     } => validate_game_result(game_result, reveal, move_address, result_author_address),
                 }
             } else { Err(String::from("Unreachable").into()) }
@@ -325,7 +330,7 @@ pub fn handle_new_commitment(component_: Component, offer_address_: Address, hos
     // let nonce_: String = String::from("randomstring"); // generate_nonce(); // We've decided this can be handled client-side.
     let reveal = Reveal { component: component_, nonce: nonce_};
         // this reveal needs to get stored locally somehow (not available publicly on chain)
-    let hashstring: HashString = calculate_hash(reveal);
+    let hashstring: HashString = calculate_hash(reveal)?;
 
     let commitment = Commitment {
         hash: hashstring,
@@ -482,8 +487,8 @@ define_zome! {
 
 // Private helper functions
 
-fn calculate_hash<T: Into<JsonString>>(raw_data: T) -> HashString {
-    HashString::encode_from_json_string(raw_data.into(), Multihash::SHA2256)
+fn calculate_hash<T: Into<JsonString>>(raw_data: T) -> ZomeApiResult<HashString> {
+    Ok(HashString::encode_from_json_string(raw_data.into(), Multihash::SHA2256))
 }
 
 fn get_author(entry_address: &Address) -> ZomeApiResult<Address> {
@@ -579,7 +584,7 @@ fn validate_game_result(game_result: GameResult, reveal: Reveal, move_address: A
     if result_author_address != move_.challenger_id.clone() {
         return Err(String::from("Game result author does not match challenger id."));
     }
-    if move_.hash != calculate_hash(reveal.clone()) {
+    if move_.hash != calculate_hash(reveal.clone())? {
         return Err(String::from("Move hash does not match hash of reveal"));
     }
     if game_result != create_game_result(reveal, move_address, move_author)? {

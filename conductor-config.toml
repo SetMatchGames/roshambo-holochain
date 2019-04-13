@@ -1,0 +1,53 @@
+[[agents]]
+id = "ezra"
+name = "Ezra"
+public_address = "HcScJ5eoyTU4pzr4cw7aVqwMzBwk6a9j5tXKq8E67NqP8aevAh88V6gxcY93yba"
+keystore_file = "/Users/ezra/Library/Preferences/org.holochain.holochain/keys/HcScJ5eoyTU4pzr4cw7aVqwMzBwk6a9j5tXKq8E67NqP8aevAh88V6gxcY93yba"
+
+[[dnas]]
+id = "roshambo"
+file = "./dist/roshambo-holochain.dna.json"
+
+[[instances]]
+id = "roshambo instance 1"
+agent = "ezra"
+dna = "roshambo"
+
+[instances.storage]
+type = "file"
+path = "./storage"
+
+[[interfaces]]
+id = "websocket interface"
+
+[[interfaces.instances]]
+id = "roshambo instance 1"
+
+[interfaces.driver]
+type = "websocket"
+port = 4000
+
+[logger]
+type = "debug"
+[[logger.rules.rules]]
+color = "red"
+exclude = false
+pattern = "^err/"
+
+[[logger.rules.rules]]
+color = "white"
+exclude = false
+pattern = "^debug/dna"
+
+[[logger.rules.rules]]
+exclude = true
+pattern = "^debug/reduce"
+
+[[logger.rules.rules]]
+exclude = false
+pattern = ".*"
+
+[network]
+n3h_path = "/Users/ezra/workspace/Holochain/n3h"
+n3h_persistence_path = "./storage/tmp"
+bootstrap_nodes = []
